@@ -1,5 +1,7 @@
 import sql from 'mssql';
 import { poolRequest } from '../utils/connectdb.js';
+import bcrypt from 'bcrypt'
+import jwt from 'jsonwebtoken'
 export const addUserService = async (user) => {
     try {
       const result = await poolRequest()
@@ -32,3 +34,34 @@ export const addUserService = async (user) => {
       throw error;
     }
   };
+  export const findByCredentialsService = async ({ email, password }) => {
+    try {
+      const userFoundResponse = await poolRequest()
+        .input('email', sql.VarChar, email)
+        .query('SELECT * FROM users WHERE email = @email');
+  
+      if (userFoundResponse.recordset[0]) {
+        const storedPassword = userFoundResponse.recordset[0].password;
+        const isPasswordValid = await bcrypt.compare(password, storedPassword);
+  
+        if (isPasswordValid) {
+          const token = jwt.sign(
+            {
+              id: userFoundResponse.recordset[0].id,
+              email: userFoundResponse.recordset[0].email,
+            },
+            process.env.JWT_SECRET,
+            { expiresIn: "24h" }
+          );
+  
+          const { password, ...userData } = userFoundResponse.recordset[0];
+          return { user: userData, token: `JWT ${token}` };
+        } else {
+          return { error: 'Invalid Credentials' };
+        }
+      } else {
+        return { error: 'Invalid Credentials' };
+      }
+    } catch (error) {
+      return { error: error.message };
+    }};

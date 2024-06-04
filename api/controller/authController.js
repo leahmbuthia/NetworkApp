@@ -1,68 +1,114 @@
 import { db } from "../connect.js";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
+import { addUserService ,getUserByEmailService} from "../service/authService.js";
+import {sendBadRequest, sendNotFound, sendServerError} from "../helper/helperFunctions.js"
+import { UserLoginValidator, UserValidator } from "../validator/authValidator.js";
 
-export const register = (req, res) => {
-  //CHECK USER IF EXISTS
 
-  const q = "SELECT * FROM users WHERE username = ?";
+export const Login = async(req,res)=>{
+  try {
+    const {email, password} = req.body;
+    console.log(email,password);
+    const {error} =UserLoginValidator(req.body);
+    if(error){
+      return sendBadRequest(res, error.details[0].message,"email");
+    }
+    
+    // check if the user exists
+    const user = await getUserByEmailService(email);
+  
+    if(!user){
+      return sendNotFound(res, "User not found");
+    } else {
+      // Now, you have the user object. Check if the password matches.
+      const isValidPassword = await comparePassword(password, user.password);
+      
+      if (isValidPassword) {
+        // Password matches, user is logged in successfully
+        res.json({ message: "Logged in user successfully", user });
+      } else {
+        // Password doesn't match
+        return sendNotFound(res, "Incorrect password");
+      }
+    }
+    
+  } catch (error) {
+    sendServerError(res, error.message);
+  }
+}
 
-  db.query(q, [req.body.username], (err, data) => {
-    if (err) return res.status(500).json(err);
-    if (data.length) return res.status(409).json("User already exists!");
-    //CREATE A NEW USER
-    //Hash the password
-    const salt = bcrypt.genSaltSync(10);
-    const hashedPassword = bcrypt.hashSync(req.body.password, salt);
 
-    const q =
-      "INSERT INTO users (`username`,`email`,`password`,`name`) VALUE (?)";
+export const register = async(req, res) => {
+  try {
+    const {
+      username,
+      email,
+      password,
+      coverpic,
+      profilepic,
+      city,
+      website,
+    } = req.body;
 
-    const values = [
-      req.body.username,
-      req.body.email,
-      hashedPassword,
-      req.body.name,
-    ];
+    // Check if the user already exists
+    const existingUser = await getUserByEmailService(email);
+    if (existingUser) {
+      return res
+        .status(400)
+        .send("User with the provided email already exists");
+    } else {
+      // Validate user data
+      const { error } = UserValidator({
+        username,
+        email,
+        password,
+        coverpic,
+        profilepic,
+        city,
+        website,
+      });
 
-    db.query(q, [values], (err, data) => {
-      if (err) return res.status(500).json(err);
-      return res.status(200).json("User has been created.");
-    });
-  });
-};
+      if (error) {
+        return res.status(400).send(error.details[0].message);
+      } else {
+        // Hash the password
+        const hashedPassword = await bcrypt.hash(password, 8);
+        const registeredUser = {
+          username,
+          email,
+          password: hashedPassword,
+          coverpic,
+          profilepic,
+          city,
+          website,
+        };
 
-export const Login = (req, res) => {
-  const q = "SELECT * FROM users WHERE username = ?";
+        // Add the user to the database
+        const result = await addUserService(registeredUser);
 
-  db.query(q, [req.body.username], (err, data) => {
-    if (err) return res.status(500).json(err);
-    if (data.length === 0) return res.status(404).json("User not found!");
-
-    const checkPassword = bcrypt.compareSync(
-      req.body.password,
-      data[0].password
-    );
-
-    if (!checkPassword)
-      return res.status(400).json("Wrong password or username!");
-
-    const token = jwt.sign({ id: data[0].id }, "secretkey");
-
-    const { password, ...others } = data[0];
-
-    res
-      .cookie("accessToken", token, {
-        httpOnly: true,
-      })
-      .status(200)
-      .json(others);
-  });
+        if (result.message) {
+          sendServerError(res, result.message);
+        } else {
+          // Generate JWT token
+          const token = jwt.sign({ email }, process.env.JWT_SECRET, {
+            expiresIn: "24h",
+          });
+     // Send JWT token along with success response
+     res.status(201).json({ message: "User created successfully", token, registeredUser });
+        
+        }
+      }
+    }
+  } catch (error) {
+    sendServerError(res, error.message);
+  }
 };
 
 export const logout = (req, res) => {
-  res.clearCookie("accessToken",{
-    secure:true,
-    sameSite:"none"
-  }).status(200).json("User has been logged out.")
+  res.clearCookie("accessToken", {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "strict",
+  }).status(200).json("User has been logged out.");
 };

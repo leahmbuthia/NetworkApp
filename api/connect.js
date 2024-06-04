@@ -1,25 +1,29 @@
-import sql from 'mssql';
+import sql from 'mssql'
 
-const config = {
+// Configuration object for the database connection
+ export const db = {
   user: 'sa',
   password: 'Nyambura@25',
-  server: 'localhost',
+  server: 'localhost', // You can use 'localhost\\instance' to connect to a named instance
   database: 'NetworkApp',
   options: {
-    encrypt: true, // Use encryption (optional, depending on your SQL Server setup)
-    trustServerCertificate: true // If you are using a self-signed certificate
+    encrypt: true, // Use this if you're connecting to Azure SQL
+    trustServerCertificate: true // Change to false for production environments
   }
 };
 
-async function connectToDatabase() {
+// Function to create a connection pool
+const connectToDatabase = async () => {
   try {
-    const pool = await sql.connect(config);
-    console.log('Connected to the database');
+    let pool = await sql.connect(db);
+    console.log("Connected to the database successfully!");
     return pool;
   } catch (err) {
-    console.error('Database connection failed:', err);
-    throw err;
+    console.error("Database connection failed: ", err);
   }
-}
+};
 
-export default connectToDatabase;
+// Call the function to establish a connection
+connectToDatabase();
+;
+
